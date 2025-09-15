@@ -67,3 +67,8 @@ Damit das Panel mit deinem **MTA:SA-Server** kommuniziert:
    Damit Browser-Anfragen erlaubt sind, muss dein Server CORS freigeben:  
    ```js
    res.set("Access-Control-Allow-Origin", "*");
+
+
+## Screenshot (Placeholder)
+
+![MTA:SA Webpanel Classic Screenshot](./placeholder-screenshot.png)
