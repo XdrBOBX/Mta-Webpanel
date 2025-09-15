@@ -1,0 +1,431 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MTA:SA Webpanel – San Andreas</title>
+  <!--
+    MTA:SA Webpanel – Classic Edition
+    Copyright (c) 2008-2025 THCBOB
+    Open Source – Kostenlos für die Community
+
+    Single-File Panel (HTML/CSS/JS)
+    • Dark (schwarz–blau) UI, BUTTONS WEISS
+    • Tabs: Übersicht, Fahrzeuge (Kennzeichen), Finanzen (Ein-/Ausgaben), Einstellungen
+    • Demo-Modus (localStorage) oder API-Modus (HTTP, CORS erforderlich)
+
+    Erwartete Beispiel-Endpoints (konfigurierbar unter Einstellungen):
+      GET  /api/ping                                      → { ok: true }
+      GET  /api/overview?ownerId=<id>                     → { playerName, cash, bank, assets, liabilities }
+      GET  /api/vehicles?ownerId=<id>                     → [ { id, plate, model, color } ]
+      POST /api/vehicles                                  → { plate, model, color, ownerId }
+      GET  /api/transactions?ownerId=<id>                 → [ { id, type:"income"|"expense", amount, category, note, ts } ]
+      POST /api/transactions                              → { type, amount, category, note, ownerId }
+
+    Hinweis: Für Browser-Zugriff CORS am Server erlauben (Origin der Webpanel-Domain whitelisten).
+  -->
+  <style>
+    :root{
+      --bg-black:#0a0d12;        /* Tiefschwarz */
+      --bg-blue:#0f1b2e;         /* Dunkelblau */
+      --card:#121a26;            /* Panels */
+      --muted:#8aa0b6;           /* Sekundärtext */
+      --text:#e8eef5;            /* Primärtext */
+      --white:#ffffff;           /* Button-Farbe */
+      --accent:#6aa0ff;          /* Links/Hover */
+      --danger:#f87171;
+      --success:#34d399;
+      --warning:#fbbf24;
+      --border: #1e2a3b;
+      --shadow: 0 8px 30px rgba(0,0,0,.35);
+      --radius: 14px;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji";
+      color:var(--text);
+      background: radial-gradient(1200px 800px at 15% -10%, #13223a 0%, transparent 60%),
+                  radial-gradient(1000px 700px at 110% 10%, #0e1b30 0%, transparent 55%),
+                  linear-gradient(180deg, var(--bg-blue), var(--bg-black));
+    }
+    a{color:var(--accent);text-decoration:none}
+    a:hover{text-decoration:underline}
+
+    /* Layout */
+    .wrap{display:grid; grid-template-columns: 260px 1fr; min-height:100vh}
+    .sidebar{border-right:1px solid var(--border); background: linear-gradient(180deg, #0f1a2b 0%, #0b1321 100%)}
+    .brand{display:flex; align-items:center; gap:12px; padding:20px}
+    .brand-logo{width:36px; height:36px; border-radius:10px; background:linear-gradient(135deg,#1e3a8a,#0ea5e9); box-shadow: var(--shadow)}
+    .brand h1{font-size:1.05rem; margin:0}
+
+    .nav{display:flex; flex-direction:column; padding:8px}
+    .nav button{appearance:none; border:1px solid transparent; background:transparent; text-align:left; color:var(--text); padding:12px 16px; border-radius:12px; font-size:.98rem; cursor:pointer}
+    .nav button:hover{background:#0f1d33}
+    .nav button.active{background:#0b1628; border-color:#1a2a44}
+
+    .content{padding:28px;}
+    .toolbar{display:flex; flex-wrap:wrap; gap:10px; align-items:center; justify-content:space-between}
+    .toolbar .left{display:flex; gap:10px; align-items:center}
+
+    /* Cards */
+    .grid{display:grid; gap:18px}
+    .grid.cols-3{grid-template-columns: repeat(3, minmax(0,1fr))}
+    .grid.cols-2{grid-template-columns: repeat(2, minmax(0,1fr))}
+    @media (max-width:1100px){ .grid.cols-3{grid-template-columns:1fr 1fr} }
+    @media (max-width:780px){ .wrap{grid-template-columns: 1fr} .grid.cols-3, .grid.cols-2{grid-template-columns:1fr} .sidebar{position:sticky; top:0; z-index:3} }
+
+    .card{background:var(--card); border:1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow)}
+    .card h3{margin:0 0 10px 0; font-size:1.05rem}
+    .card .body{padding:18px}
+    .muted{color:var(--muted)}
+    .kbd{background:#0b1523; padding:2px 8px; border-radius:6px; border:1px solid #142036; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace}
+
+    /* Buttons – WEISS */
+    .btn{appearance:none; border:1px solid #e5e7eb; background:var(--white); color:#0b1220; padding:10px 14px; border-radius:12px; cursor:pointer; font-weight:600}
+    .btn:hover{filter:brightness(.95)}
+    .btn.ghost{background:transparent; color:var(--text); border-color:#2a3951}
+    .btn.danger{border-color:#ef4444}
+
+    /* Inputs */
+    .row{display:flex; gap:10px; flex-wrap:wrap}
+    .field{display:flex; flex-direction:column; gap:8px; flex:1 1 180px}
+    label{font-size:.9rem; color:var(--muted)}
+    input, select, textarea{background:#0b1422; color:var(--text); border:1px solid #1d2a41; border-radius:10px; padding:10px 12px; outline:none}
+    input:focus, select:focus, textarea:focus{border-color:#2d4a7a}
+    table{width:100%; border-collapse: collapse}
+    th, td{padding:10px 12px; border-bottom:1px solid #1b2840; text-align:left}
+    th{color:#9fb1c6; font-weight:600}
+    tr:hover td{background:#0c1727}
+    .right{text-align:right}
+
+    .tag{display:inline-flex; align-items:center; gap:6px; padding:3px 8px; border-radius:999px; font-size:.8rem; border:1px solid #20314d}
+    .tag.income{color:#b7f7d6; border-color:#235042}
+    .tag.expense{color:#ffd0d0; border-color:#4b2631}
+    .small{font-size:.85rem}
+
+    .footer{color:var(--muted)}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-logo" aria-hidden="true"></div>
+        <div>
+          <h1>MTA:SA Webpanel</h1>
+          <div class="muted small">San Andreas • Single-File</div>
+        </div>
+      </div>
+      <nav class="nav">
+        <button class="active" data-tab="overview">🏠 Übersicht</button>
+        <button data-tab="vehicles">🚗 Fahrzeuge</button>
+        <button data-tab="finance">💳 Finanzen</button>
+        <button data-tab="settings">⚙️ Einstellungen</button>
+      </nav>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="content">
+      <div class="toolbar">
+        <div class="left">
+          <strong id="title">Übersicht</strong>
+          <span class="muted">• Spieler-ID:&nbsp;<span id="ownerIdLabel" class="kbd">demo-user</span></span>
+        </div>
+        <div class="right">
+          <button class="btn ghost" id="pingBtn">API prüfen</button>
+        </div>
+      </div>
+
+      <!-- TABS -->
+      <section id="tab-overview" class="tab">
+        <div class="grid cols-3">
+          <div class="card"><div class="body"><h3>Spieler</h3>
+            <div class="muted">Name</div><div id="ov-name" style="font-size:1.2rem; margin:6px 0 12px"></div>
+            <div class="muted">Kontostand</div><div id="ov-bank" style="font-size:1.2rem; margin:6px 0 12px"></div>
+            <div class="muted">Bargeld</div><div id="ov-cash" style="font-size:1.2rem;"></div>
+          </div></div>
+          <div class="card"><div class="body"><h3>Vermögen</h3>
+            <div class="row">
+              <div class="field"><label>Assets</label><div id="ov-assets" class="kbd"></div></div>
+              <div class="field"><label>Schulden</label><div id="ov-liab" class="kbd"></div></div>
+            </div>
+          </div></div>
+          <div class="card"><div class="body"><h3>Quick Actions</h3>
+            <div class="row">
+              <button class="btn" id="toVehicles">Fahrzeuge öffnen</button>
+              <button class="btn" id="toFinance">Finanzen öffnen</button>
+            </div>
+          </div></div>
+        </div>
+      </section>
+
+      <section id="tab-vehicles" class="tab" hidden>
+        <div class="card"><div class="body">
+          <h3>Fahrzeuge</h3>
+          <table id="veh-table">
+            <thead><tr><th>#</th><th>Kennzeichen</th><th>Modell</th><th>Farbe</th><th class="right">Aktion</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div></div>
+        <div class="card"><div class="body">
+          <h3>Neues Fahrzeug</h3>
+          <div class="row">
+            <div class="field"><label>Kennzeichen</label><input id="veh-plate" placeholder="SA-AB 123" maxlength="12" /></div>
+            <div class="field"><label>Modell</label><input id="veh-model" placeholder="Sultan" /></div>
+            <div class="field"><label>Farbe</label><input id="veh-color" placeholder="Navy" /></div>
+          </div>
+          <div style="margin-top:12px"><button class="btn" id="veh-add">Speichern</button></div>
+        </div></div>
+      </section>
+
+      <section id="tab-finance" class="tab" hidden>
+        <div class="grid cols-2">
+          <div class="card"><div class="body">
+            <h3>Buchungen</h3>
+            <table id="tx-table">
+              <thead><tr><th>#</th><th>Art</th><th>Betrag</th><th>Kategorie</th><th>Notiz</th><th>Datum</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div></div>
+          <div class="card"><div class="body">
+            <h3>Neue Buchung</h3>
+            <div class="row">
+              <div class="field">
+                <label>Art</label>
+                <select id="tx-type">
+                  <option value="income">Einnahme</option>
+                  <option value="expense">Ausgabe</option>
+                </select>
+              </div>
+              <div class="field"><label>Betrag</label><input id="tx-amount" type="number" step="0.01" placeholder="100.00" /></div>
+              <div class="field"><label>Kategorie</label><input id="tx-category" placeholder="Lohn / Miete / Tank" /></div>
+            </div>
+            <div class="field" style="margin-top:10px"><label>Notiz</label><input id="tx-note" placeholder="optional" /></div>
+            <div style="margin-top:12px"><button class="btn" id="tx-add">Buchen</button></div>
+          </div></div>
+        </div>
+      </section>
+
+      <section id="tab-settings" class="tab" hidden>
+        <div class="card"><div class="body">
+          <h3>Verbindung</h3>
+          <div class="row">
+            <div class="field"><label>Modus</label>
+              <select id="set-mode">
+                <option value="demo">Demo (localStorage)</option>
+                <option value="api">API (HTTP)</option>
+              </select>
+            </div>
+            <div class="field"><label>API Base URL</label><input id="set-baseurl" placeholder="https://panel.dein-server.tld" /></div>
+            <div class="field"><label>Spieler/Owner ID</label><input id="set-owner" placeholder="z.B. steam:110000…" /></div>
+          </div>
+          <div class="row" style="margin-top:10px">
+            <button class="btn" id="set-save">Speichern</button>
+            <button class="btn ghost" id="set-reset">Demo zurücksetzen</button>
+          </div>
+          <p class="muted small" style="margin-top:12px">Für API-Modus muss der Server CORS für dieses Panel erlauben.</p>
+        </div></div>
+      </section>
+
+      <footer class="card" style="margin-top:24px;">
+        <div class="body" style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between">
+          <div class="small muted">Open Source • Kostenlos für die Community (MTA:SA).</div>
+          <div class="small">© 2008–2025 <span class="kbd">THCBOB</span></div>
+        </div>
+      </footer>
+    </main>
+  </div>
+
+  <script>
+    // --- Persistence ---
+    const STORAGE_KEY = 'mtasa_panel_v1';
+    const state = loadState();
+
+    function loadState(){
+      const def = {
+        mode: 'demo',
+        baseUrl: 'http://localhost:3010',
+        ownerId: 'demo-user',
+        demo: {
+          overview: { playerName: 'CJ', cash: 540.00, bank: 12500.00, assets: 32000.00, liabilities: 2500.00 },
+          vehicles: [ {id:1, plate:'SA-CJ 1992', model:'Sultan', color:'Navy'}, {id:2, plate:'LS-TR 777', model:'Elegy', color:'Schwarz'} ],
+          transactions: [
+            {id:1, type:'income', amount:1500.00, category:'Lohn', note:'Werkstatt', ts: Date.now()-86400000*2},
+            {id:2, type:'expense', amount:220.50, category:'Tanken', note:'Sultan', ts: Date.now()-86400000*1},
+          ]
+        }
+      };
+      try{
+        const raw = localStorage.getItem(STORAGE_KEY);
+        return raw ? Object.assign(def, JSON.parse(raw)) : def;
+      }catch(e){ return def; }
+    }
+    function saveState(){ localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+
+    // --- API Adapter ---
+    const api = {
+      async ping(){
+        if(state.mode==='demo') return { ok:true, demo:true };
+        const r = await fetch(state.baseUrl+'/api/ping').catch(()=>null);
+        if(!r) return { ok:false };
+        try{ return await r.json(); }catch{ return { ok:false }; }
+      },
+      async getOverview(){
+        if(state.mode==='demo') return JSON.parse(JSON.stringify(state.demo.overview));
+        const u = new URL(state.baseUrl+'/api/overview'); u.searchParams.set('ownerId', state.ownerId);
+        return fetch(u).then(r=>r.json());
+      },
+      async getVehicles(){
+        if(state.mode==='demo') return [...state.demo.vehicles];
+        const u = new URL(state.baseUrl+'/api/vehicles'); u.searchParams.set('ownerId', state.ownerId);
+        return fetch(u).then(r=>r.json());
+      },
+      async addVehicle(v){
+        if(state.mode==='demo'){
+          const id = (state.demo.vehicles.at(-1)?.id || 0)+1;
+          state.demo.vehicles.push({ id, ...v }); saveState(); return { ok:true, id };
+        }
+        return fetch(state.baseUrl+'/api/vehicles',{
+          method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ...v, ownerId: state.ownerId })
+        }).then(r=>r.json());
+      },
+      async getTx(){
+        if(state.mode==='demo') return [...state.demo.transactions].sort((a,b)=>b.ts-a.ts);
+        const u = new URL(state.baseUrl+'/api/transactions'); u.searchParams.set('ownerId', state.ownerId);
+        return fetch(u).then(r=>r.json());
+      },
+      async addTx(t){
+        if(state.mode==='demo'){
+          const id = (state.demo.transactions.at(-1)?.id || 0)+1;
+          state.demo.transactions.push({ id, ...t }); saveState(); return { ok:true, id };
+        }
+        return fetch(state.baseUrl+'/api/transactions',{
+          method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ...t, ownerId: state.ownerId })
+        }).then(r=>r.json());
+      }
+    };
+
+    // --- UI Wiring ---
+    const $ = sel => document.querySelector(sel);
+    const $$ = sel => Array.from(document.querySelectorAll(sel));
+
+    function fmtMoney(v){
+      const n = Number(v||0); return new Intl.NumberFormat('de-DE',{style:'currency', currency:'EUR'}).format(n);
+    }
+    function fmtDate(ts){ return new Date(ts).toLocaleString('de-DE'); }
+
+    // Tabs
+    $$('.nav button').forEach(btn=>btn.addEventListener('click',()=>selectTab(btn.dataset.tab)));
+    $('#toVehicles').addEventListener('click',()=>selectTab('vehicles'));
+    $('#toFinance').addEventListener('click',()=>selectTab('finance'));
+
+    function selectTab(tab){
+      $$('.nav button').forEach(b=>b.classList.toggle('active', b.dataset.tab===tab));
+      $('#title').textContent = ({overview:'Übersicht', vehicles:'Fahrzeuge', finance:'Finanzen', settings:'Einstellungen'})[tab] || '';
+      ['overview','vehicles','finance','settings'].forEach(t=>{ const el=$('#tab-'+t); if(el) el.hidden = (t!==tab); });
+      if(tab==='overview') loadOverview();
+      if(tab==='vehicles') loadVehicles();
+      if(tab==='finance') loadTx();
+      if(tab==='settings') syncSettingsForm();
+    }
+
+    // Overview
+    async function loadOverview(){
+      try{
+        const ov = await api.getOverview();
+        $('#ov-name').textContent = ov.playerName || 'Unbekannt';
+        $('#ov-bank').textContent = fmtMoney(ov.bank);
+        $('#ov-cash').textContent = fmtMoney(ov.cash);
+        $('#ov-assets').textContent = fmtMoney(ov.assets);
+        $('#ov-liab').textContent = fmtMoney(ov.liabilities);
+      }catch(e){ console.error(e); }
+    }
+
+    // Vehicles
+    async function loadVehicles(){
+      const tbody = $('#veh-table tbody'); tbody.innerHTML='';
+      const rows = await api.getVehicles();
+      rows.forEach((v,i)=>{
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>${i+1}</td><td>${escapeHtml(v.plate)}</td><td>${escapeHtml(v.model)}</td><td>${escapeHtml(v.color||'')}</td><td class="right"><button class="btn ghost" data-id="${v.id}">Entfernen</button></td>`;
+        tr.querySelector('button').addEventListener('click',()=>removeVehicle(v.id));
+        tbody.appendChild(tr);
+      });
+    }
+    async function removeVehicle(id){
+      if(state.mode==='demo'){
+        state.demo.vehicles = state.demo.vehicles.filter(v=>v.id!==id); saveState(); loadVehicles();
+      } else {
+        alert('DELETE-Endpoint noch nicht implementiert – bitte am Server ergänzen.');
+      }
+    }
+    $('#veh-add').addEventListener('click', async ()=>{
+      const plate = $('#veh-plate').value.trim();
+      const model = $('#veh-model').value.trim();
+      const color = $('#veh-color').value.trim();
+      if(!plate || !model){ alert('Kennzeichen und Modell sind Pflicht.'); return; }
+      await api.addVehicle({ plate, model, color });
+      $('#veh-plate').value=''; $('#veh-model').value=''; $('#veh-color').value='';
+      loadVehicles();
+    });
+
+    // Finance
+    async function loadTx(){
+      const tbody = $('#tx-table tbody'); tbody.innerHTML='';
+      const rows = await api.getTx();
+      rows.forEach((t,i)=>{
+        const tr = document.createElement('tr');
+        const tag = `<span class="tag ${t.type}">${t.type==='income'?'Einnahme':'Ausgabe'}</span>`;
+        tr.innerHTML = `<td>${i+1}</td><td>${tag}</td><td>${fmtMoney(t.amount)}</td><td>${escapeHtml(t.category||'')}</td><td>${escapeHtml(t.note||'')}</td><td>${fmtDate(t.ts||Date.now())}</td>`;
+        tbody.appendChild(tr);
+      });
+    }
+    $('#tx-add').addEventListener('click', async ()=>{
+      const type = $('#tx-type').value;
+      const amount = parseFloat($('#tx-amount').value);
+      const category = $('#tx-category').value.trim();
+      const note = $('#tx-note').value.trim();
+      if(!amount || amount<=0){ alert('Bitte gültigen Betrag eingeben.'); return; }
+      await api.addTx({ type, amount, category, note, ts: Date.now() });
+      $('#tx-amount').value=''; $('#tx-category').value=''; $('#tx-note').value='';
+      loadTx();
+    });
+
+    // Settings
+    function syncSettingsForm(){
+      $('#set-mode').value = state.mode;
+      $('#set-baseurl').value = state.baseUrl;
+      $('#set-owner').value = state.ownerId;
+      $('#ownerIdLabel').textContent = state.ownerId || '—';
+    }
+    $('#set-save').addEventListener('click', ()=>{
+      state.mode = $('#set-mode').value;
+      state.baseUrl = $('#set-baseurl').value.trim() || state.baseUrl;
+      state.ownerId = $('#set-owner').value.trim() || state.ownerId;
+      saveState(); syncSettingsForm();
+      alert('Gespeichert.');
+    });
+    $('#set-reset').addEventListener('click', ()=>{
+      if(!confirm('Demo-Daten wirklich zurücksetzen?')) return;
+      localStorage.removeItem(STORAGE_KEY); location.reload();
+    });
+
+    // Ping
+    $('#pingBtn').addEventListener('click', async ()=>{
+      const r = await api.ping();
+      if(r && r.ok) alert('API erreichbar ' + (r.demo?'(Demo)':''));
+      else alert('API nicht erreichbar. Prüfe Base URL & CORS.');
+    });
+
+    // Helpers
+    function escapeHtml(s){ return (s||'').replace(/[&<>"']/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[m])); }
+
+    // Init
+    selectTab('overview');
+    syncSettingsForm();
+    loadOverview();
+  </script>
+</body>
+</html>
